@@ -82,13 +82,20 @@ class MT5Extractor:
             logger.debug(f"Login: {login}, Server: {server}")
 
             # Initialize MT5
-            if not mt5.initialize(
-                path=self.config['mt5'].get('path'),
-                login=login,
-                password=self.config['mt5']['password'],
-                server=server,
-                timeout=self.config['mt5'].get('timeout', 60000)
-            ):
+            # Prepare initialization parameters
+            init_params = {
+                'login': login,
+                'password': self.config['mt5']['password'],
+                'server': server,
+                'timeout': self.config['mt5'].get('timeout', 60000)
+            }
+
+            # Only add path if it's specified
+            path = self.config['mt5'].get('path')
+            if path:
+                init_params['path'] = path
+
+            if not mt5.initialize(**init_params):
                 error_code, error_msg = mt5.last_error()
                 logger.error(f"MT5 initialization failed: ({error_code}, '{error_msg}')")
                 logger.error(f"Verify that:")
