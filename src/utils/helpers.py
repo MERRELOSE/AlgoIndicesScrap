@@ -83,12 +83,19 @@ def load_data(
 
     if not filepath.exists():
         logger.error(f"File not found: {filepath}")
+        logger.error(f"Please extract data first:")
+        logger.error(f"  python src/extractors/deriv_api_extractor.py --symbol '{symbol}' --timeframe {timeframe} --days 365")
+        logger.error(f"Or use the quick extraction script:")
+        logger.error(f"  python extract_multi_timeframe.py")
         return None
 
-    df = pd.read_parquet(filepath)
-    logger.info(f"Loaded {len(df)} rows from {filepath}")
-
-    return df
+    try:
+        df = pd.read_parquet(filepath)
+        logger.info(f"Loaded {len(df)} rows from {filepath}")
+        return df
+    except Exception as e:
+        logger.error(f"Error loading {filepath}: {e}")
+        return None
 
 
 def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
