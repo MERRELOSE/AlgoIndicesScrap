@@ -1,0 +1,110 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Data files
+data/raw/*.parquet
+data/raw/*.csv
+data/raw/*.hdf5
+data/processed/*.parquet
+data/processed/*.csv
+data/processed/*.hdf5
+data/.cache/
+
+# Model files
+data/models/*.pth
+data/models/*.h5
+data/models/*.pkl
+data/models/*.joblib
+
+# Logs
+logs/
+*.log
+
+# Results
+results/plots/*.png
+results/plots/*.svg
+results/plots/*.html
+results/reports/*.json
+results/reports/*.html
+
+# Environment variables
+.env
+.env.local
+config/secrets.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Tensorboard
+runs/
+tensorboard/
+
+# Weights & Biases
+wandb/
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Sensitive data
+credentials.json
+*.key
+*.pem

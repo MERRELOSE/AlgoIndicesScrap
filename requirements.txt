@@ -1,0 +1,77 @@
+# Core Dependencies
+numpy>=1.24.0
+pandas>=2.0.0
+polars>=0.18.0
+
+# MetaTrader 5
+MetaTrader5>=5.0.45
+
+# Statistical Analysis
+scipy>=1.10.0
+statsmodels>=0.14.0
+arch>=6.2.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+lightgbm>=4.0.0
+catboost>=1.2.0
+
+# Deep Learning
+torch>=2.0.0
+torchvision>=0.15.0
+pytorch-lightning>=2.0.0
+tensorflow>=2.13.0
+keras>=2.13.0
+
+# Time Series Specific
+darts>=0.25.0
+prophet>=1.1.4
+tsfresh>=0.20.0
+PyWavelets>=1.4.0
+stumpy>=1.11.0  # Matrix Profile for pattern discovery
+
+# Data Storage
+tables>=3.8.0  # HDF5 support
+pyarrow>=12.0.0  # Parquet support
+sqlalchemy>=2.0.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.14.0
+mplfinance>=0.12.9
+dash>=2.11.0
+
+# Feature Engineering
+ta>=0.11.0  # Technical Analysis indicators
+pandas-ta>=0.3.14b
+ta-lib>=0.4.0  # (optional, requires C library)
+
+# Utils
+python-dotenv>=1.0.0
+pyyaml>=6.0
+tqdm>=4.65.0
+joblib>=1.3.0
+click>=8.1.0  # CLI interface
+
+# Jupyter & Notebooks
+jupyter>=1.0.0
+ipykernel>=6.23.0
+ipywidgets>=8.0.0
+notebook>=6.5.0
+
+# Testing
+pytest>=7.3.0
+pytest-cov>=4.1.0
+
+# Logging & Monitoring
+loguru>=0.7.0
+tensorboard>=2.13.0
+wandb>=0.15.0  # For experiment tracking (optional)
+
+# Additional Tools
+hurst>=0.0.5  # Hurst exponent calculation
+pymannkendall>=1.4.3  # Trend detection
+ruptures>=1.1.8  # Change point detection
+fbprophet>=0.7.1  # Facebook Prophet

@@ -1,0 +1,299 @@
+# Configuration Principale - Deriv Synthetic Indices Analysis
+
+# MetaTrader 5 Connection
+mt5:
+  login: YOUR_MT5_LOGIN  # À remplir
+  password: YOUR_MT5_PASSWORD  # À remplir
+  server: "Deriv-Demo"  # ou "Deriv-Real"
+  path: null  # Chemin vers MT5 (null = auto-detect)
+  timeout: 60000  # milliseconds
+
+# Symbols to Analyze
+symbols:
+  volatility:
+    - "Volatility 10 Index"
+    - "Volatility 25 Index"
+    - "Volatility 50 Index"
+    - "Volatility 75 Index"
+    - "Volatility 100 Index"
+  crash:
+    - "Crash 500 Index"
+    - "Crash 1000 Index"
+  boom:
+    - "Boom 500 Index"
+    - "Boom 1000 Index"
+  step:
+    - "Step Index"
+
+# Data Extraction Settings
+extraction:
+  timeframes:
+    - M1   # 1 minute
+    - M5   # 5 minutes
+    - M15  # 15 minutes
+    - H1   # 1 hour
+    - H4   # 4 hours
+    - D1   # 1 day
+
+  # Historical data range
+  start_date: "2023-01-01"
+  end_date: null  # null = today
+
+  # Tick data extraction
+  use_tick_data: true
+  tick_limit: 1000000  # Max ticks per request
+
+  # Data storage format
+  storage_format: "parquet"  # parquet, csv, hdf5
+  compression: "snappy"
+
+# Feature Engineering
+features:
+  # Technical Indicators
+  technical_indicators:
+    - name: "SMA"
+      periods: [10, 20, 50, 100, 200]
+    - name: "EMA"
+      periods: [10, 20, 50]
+    - name: "RSI"
+      period: 14
+    - name: "MACD"
+      fast: 12
+      slow: 26
+      signal: 9
+    - name: "Bollinger_Bands"
+      period: 20
+      std: 2
+    - name: "ATR"
+      period: 14
+    - name: "Stochastic"
+      k: 14
+      d: 3
+
+  # Custom Features
+  custom_features:
+    - "price_velocity"  # rate of change
+    - "price_acceleration"
+    - "volume_profile"
+    - "time_features"  # hour, day, weekday
+    - "spike_indicator"  # for Crash/Boom
+    - "volatility_realized"
+    - "microstructure"  # bid-ask spread patterns
+
+# Statistical Analysis
+analysis:
+  # Distribution tests
+  distribution_tests:
+    - "shapiro"  # normality
+    - "jarque_bera"  # normality
+    - "ks_test"  # distribution comparison
+    - "anderson"  # distribution fitting
+
+  # Stationarity tests
+  stationarity_tests:
+    - "adf"  # Augmented Dickey-Fuller
+    - "kpss"  # Kwiatkowski-Phillips-Schmidt-Shin
+    - "pp"   # Phillips-Perron
+
+  # Autocorrelation
+  autocorr:
+    max_lags: 100
+    partial: true
+
+  # Frequency analysis
+  fft:
+    enabled: true
+    detrend: true
+    window: "hamming"
+
+  # Wavelet analysis
+  wavelets:
+    enabled: true
+    wavelet: "morlet"
+    scales: 128
+
+  # Entropy analysis
+  entropy:
+    - "shannon"
+    - "sample_entropy"
+    - "approximate_entropy"
+
+  # Hurst exponent
+  hurst:
+    enabled: true
+    lags: [10, 20, 50, 100]
+
+# Pattern Detection
+patterns:
+  # Spike detection (Crash/Boom)
+  spikes:
+    threshold_std: 3.0  # Standard deviations
+    min_distance: 10  # bars between spikes
+
+  # Cycle detection
+  cycles:
+    min_period: 10
+    max_period: 500
+    method: "fft"  # fft, wavelet, autocorr
+
+  # Change point detection
+  change_points:
+    model: "rbf"  # rbf, l1, l2, normal
+    min_size: 20
+    jump: 5
+
+  # Anomaly detection
+  anomalies:
+    method: "isolation_forest"  # isolation_forest, autoencoder, lof
+    contamination: 0.1
+
+# Machine Learning Models
+models:
+  # Train/Test Split
+  split:
+    train_size: 0.7
+    validation_size: 0.15
+    test_size: 0.15
+    method: "sequential"  # sequential, k-fold
+
+  # Classical ML
+  classical:
+    random_forest:
+      n_estimators: 100
+      max_depth: 10
+      min_samples_split: 5
+
+    xgboost:
+      n_estimators: 100
+      max_depth: 6
+      learning_rate: 0.1
+      subsample: 0.8
+
+    svm:
+      kernel: "rbf"
+      C: 1.0
+      gamma: "scale"
+
+  # Deep Learning
+  deep_learning:
+    lstm:
+      hidden_size: 128
+      num_layers: 2
+      dropout: 0.2
+      bidirectional: true
+      sequence_length: 60
+
+    gru:
+      hidden_size: 128
+      num_layers: 2
+      dropout: 0.2
+      sequence_length: 60
+
+    transformer:
+      d_model: 128
+      nhead: 8
+      num_layers: 4
+      dim_feedforward: 512
+      dropout: 0.1
+
+    tcn:
+      num_channels: [64, 128, 256]
+      kernel_size: 3
+      dropout: 0.2
+
+  # Training settings
+  training:
+    batch_size: 64
+    epochs: 100
+    learning_rate: 0.001
+    optimizer: "adam"
+    scheduler: "cosine"
+    early_stopping:
+      patience: 10
+      min_delta: 0.001
+
+    # Hardware
+    device: "cuda"  # cuda, cpu, mps
+    mixed_precision: true
+    num_workers: 4
+
+# Backtesting
+backtesting:
+  # Initial capital
+  initial_capital: 10000
+
+  # Position sizing
+  position_size: 0.02  # 2% of capital per trade
+  max_positions: 3
+
+  # Risk management
+  stop_loss: 0.02  # 2%
+  take_profit: 0.04  # 4%
+  trailing_stop: true
+
+  # Fees
+  commission: 0.0  # Deriv has no commission
+  spread: 0.0001  # To be adjusted per symbol
+  slippage: 0.0001
+
+  # Metrics to track
+  metrics:
+    - "total_return"
+    - "sharpe_ratio"
+    - "sortino_ratio"
+    - "max_drawdown"
+    - "win_rate"
+    - "profit_factor"
+    - "avg_trade_duration"
+    - "calmar_ratio"
+
+# Visualization
+visualization:
+  # Plot settings
+  default_style: "plotly_dark"
+  dpi: 150
+  figure_size: [16, 9]
+
+  # Interactive plots
+  interactive: true
+
+  # Export formats
+  export_formats: ["png", "html", "svg"]
+
+  # Dashboard
+  dashboard:
+    enabled: true
+    port: 8050
+    debug: false
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+  file: "logs/app.log"
+  rotation: "100 MB"
+  retention: "30 days"
+
+# Experiment Tracking
+experiment_tracking:
+  enabled: true
+  backend: "tensorboard"  # tensorboard, wandb, mlflow
+  project_name: "deriv-algo-analysis"
+
+# Performance
+performance:
+  parallel_processing: true
+  n_jobs: -1  # -1 = use all cores
+  cache_data: true
+  cache_dir: "data/.cache"
+
+# Alerts & Notifications (optional)
+notifications:
+  enabled: false
+  method: "email"  # email, telegram, discord
+  email:
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    sender: "your-email@gmail.com"
+    password: "your-app-password"
+    recipients: ["your-email@gmail.com"]
