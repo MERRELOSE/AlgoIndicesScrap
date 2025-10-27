@@ -1,0 +1,37 @@
+# Requirements minimaux pour démarrer rapidement
+# Compatible avec Python 3.10, 3.11 et 3.13
+
+# Core - Essentiels
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# MetaTrader 5 - OBLIGATOIRE
+MetaTrader5>=5.0.45
+
+# Analyse Statistique - Essentiels
+statsmodels>=0.14.0
+scikit-learn>=1.3.0
+
+# Visualisation - Basique
+matplotlib>=3.7.0
+plotly>=5.14.0
+
+# Utils - Essentiels
+pyyaml>=6.0
+loguru>=0.7.0
+python-dotenv>=1.0.0
+
+# Data Storage
+pyarrow>=12.0.0
+
+# Jupyter
+jupyter>=1.0.0
+ipykernel>=6.23.0
+
+# Pattern Detection
+ruptures>=1.1.8
+
+# Outils supplémentaires légers
+tqdm>=4.65.0
+hurst>=0.0.5
