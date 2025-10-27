@@ -45,7 +45,7 @@ dash>=2.11.0
 
 # Feature Engineering
 # ta>=0.11.0  # Technical Analysis indicators - installer manuellement si besoin
-pandas-ta>=0.3.14b
+# pandas-ta>=0.3.14b  # Pas de version stable sur PyPI - installer depuis GitHub si besoin: pip install git+https://github.com/twopirllc/pandas-ta
 # ta-lib>=0.4.0  # Requires C library - installer manuellement si besoin
 
 # Utils
