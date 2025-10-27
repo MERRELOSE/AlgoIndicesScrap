@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Optional, List, Tuple
 from loguru import logger
 import yaml
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class MT5Extractor:
@@ -38,9 +43,25 @@ class MT5Extractor:
         self.connected = False
 
     def _load_config(self, config_path: str) -> dict:
-        """Load configuration from YAML file"""
+        """Load configuration from YAML file and override with .env variables"""
         with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+            config = yaml.safe_load(f)
+
+        # Override MT5 config with environment variables if present
+        if 'mt5' not in config:
+            config['mt5'] = {}
+
+        # Priority: .env > config.yaml
+        if os.getenv('MT5_LOGIN'):
+            config['mt5']['login'] = os.getenv('MT5_LOGIN')
+        if os.getenv('MT5_PASSWORD'):
+            config['mt5']['password'] = os.getenv('MT5_PASSWORD')
+        if os.getenv('MT5_SERVER'):
+            config['mt5']['server'] = os.getenv('MT5_SERVER')
+        if os.getenv('MT5_PATH'):
+            config['mt5']['path'] = os.getenv('MT5_PATH')
+
+        return config
 
     def connect(self) -> bool:
         """
@@ -50,15 +71,31 @@ class MT5Extractor:
             bool: True if connection successful
         """
         try:
+            # Get login and convert to integer
+            login = self.config['mt5']['login']
+            if isinstance(login, str):
+                login = int(login)
+
+            server = self.config['mt5']['server']
+
+            logger.info(f"Attempting to connect to MT5...")
+            logger.debug(f"Login: {login}, Server: {server}")
+
             # Initialize MT5
             if not mt5.initialize(
                 path=self.config['mt5'].get('path'),
-                login=self.config['mt5']['login'],
+                login=login,
                 password=self.config['mt5']['password'],
-                server=self.config['mt5']['server'],
-                timeout=self.config['mt5']['timeout']
+                server=server,
+                timeout=self.config['mt5'].get('timeout', 60000)
             ):
-                logger.error(f"MT5 initialization failed: {mt5.last_error()}")
+                error_code, error_msg = mt5.last_error()
+                logger.error(f"MT5 initialization failed: ({error_code}, '{error_msg}')")
+                logger.error(f"Verify that:")
+                logger.error(f"  1. MT5 is installed and running")
+                logger.error(f"  2. Login: {login} is correct")
+                logger.error(f"  3. Server: {server} is correct")
+                logger.error(f"  4. Password in .env is correct")
                 return False
 
             # Check connection
