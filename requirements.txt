@@ -40,13 +40,13 @@ sqlalchemy>=2.0.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
 plotly>=5.14.0
-mplfinance>=0.12.9
+# mplfinance>=0.12.9  # Pas de version stable, installer manuellement si besoin: pip install mplfinance==0.12.10b0
 dash>=2.11.0
 
 # Feature Engineering
-ta>=0.11.0  # Technical Analysis indicators
+# ta>=0.11.0  # Technical Analysis indicators - installer manuellement si besoin
 pandas-ta>=0.3.14b
-ta-lib>=0.4.0  # (optional, requires C library)
+# ta-lib>=0.4.0  # Requires C library - installer manuellement si besoin
 
 # Utils
 python-dotenv>=1.0.0
@@ -68,10 +68,10 @@ pytest-cov>=4.1.0
 # Logging & Monitoring
 loguru>=0.7.0
 tensorboard>=2.13.0
-wandb>=0.15.0  # For experiment tracking (optional)
+# wandb>=0.15.0  # For experiment tracking - installer manuellement si besoin
 
 # Additional Tools
 hurst>=0.0.5  # Hurst exponent calculation
 pymannkendall>=1.4.3  # Trend detection
 ruptures>=1.1.8  # Change point detection
-fbprophet>=0.7.1  # Facebook Prophet
+# fbprophet>=0.7.1  # Deprecated, use 'prophet' instead (already in requirements)
