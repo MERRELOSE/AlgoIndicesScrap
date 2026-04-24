@@ -1,0 +1,108 @@
+====================================================================
+  INSTALLATION - CrashHunter v3 Expert Advisor
+====================================================================
+
+ETAPE 1: Copier le fichier EA dans MT5
+---------------------------------------
+  1. Ouvre MetaTrader 5
+  2. Menu: Fichier > Ouvrir le dossier des donnees
+  3. Va dans: MQL5\Experts\
+  4. Copie le fichier "CrashHunter_v3.mq5" dedans
+
+ETAPE 2: Compiler l'EA
+-----------------------
+  1. Dans MT5, ouvre MetaEditor (F4 ou icone en haut)
+  2. Dans le navigateur a gauche: Experts > CrashHunter_v3.mq5
+  3. Double-clic pour ouvrir
+  4. Clic sur "Compiler" (ou F7)
+  5. Verifie: 0 errors en bas
+
+ETAPE 3: BACKTEST dans Strategy Tester
+----------------------------------------
+  1. Retourne dans MT5 (pas MetaEditor)
+  2. Menu: Vue > Strategy Tester (ou Ctrl+R)
+  3. Configure:
+     - Expert Advisor: CrashHunter_v3
+     - Symbole: Crash 1000 Index
+     - Periode: H1
+     - Dates: 1 an minimum (ex: 2025-03-01 a 2026-03-21)
+     - Depot: 10000 USD
+     - Modele: Chaque tick (le plus precis)
+     - Execution: Normal
+  4. Clic "Demarrer"
+  5. Attends la fin du backtest
+  6. Onglet "Resultats" pour voir les trades
+  7. Onglet "Graphique" pour la courbe d'equity
+  8. Onglet "Rapport" pour les stats completes
+
+ETAPE 4: OPTIMISATION (optionnel)
+-----------------------------------
+  1. Dans Strategy Tester, coche "Optimisation"
+  2. Onglet "Parametres d'entree"
+  3. Parametres a optimiser:
+     - SL Multiplier: 1.0 a 3.0, pas 0.5
+     - TP Multiplier: 2.0 a 5.0, pas 0.5
+     - RSI Oversold: 25 a 40, pas 5
+     - Consecutive Down: 2 a 5, pas 1
+  4. Clic "Demarrer" et laisse tourner
+  5. Trie par "Profit Factor" pour trouver les meilleurs params
+
+ETAPE 5: DEMO LIVE
+--------------------
+  1. Ouvre un graphique Crash 1000 Index H1
+  2. Glisse l'EA depuis le Navigateur sur le graphique
+  3. Coche "Autoriser le trading automatique"
+  4. Configure les parametres (lot size = 0.01 pour commencer)
+  5. Clic OK
+  6. Verifie que le smiley en haut a droite est content :)
+
+====================================================================
+  PARAMETRES RECOMMANDES
+====================================================================
+
+  Lot Size:          0.01 (demo) / selon money management (live)
+  SL Multiplier:     1.5
+  TP Multiplier:     3.0
+  Trailing Start:    1.0 (x ATR)
+  Trailing Distance: 2.0 (x ATR)
+  Max Trades:        1
+  Cooldown Bars:     4
+  RSI Period:        14
+  RSI Oversold:      35
+  RSI Deep OS:       20
+  EMA Fast:          5
+  EMA Slow:          20
+  ATR Period:        14
+  Spike Lookback:    3
+  Spike Threshold:   3.0
+  Consecutive Down:  3
+  Use H4 Filter:     true
+  H4 RSI Limit:      40
+  Max Hold Bars:     30
+
+====================================================================
+  SIGNAUX DE TRADING (ce que l'EA fait)
+====================================================================
+
+  L'EA trade UNIQUEMENT en BUY (Long) sur Crash 1000 Index.
+
+  Il entre quand:
+  1. Post-crash recovery: apres un crash spike (signal fort, seul)
+  2. RSI oversold (20-35) + consecutive down (3+) = confluence
+  3. Bullish EMA cross (EMA5 passe au-dessus EMA20)
+  4. Overextended below EMA20 (-1% a -3%) + autre signal
+
+  Il N'entre PAS quand:
+  - Candle doji (indecision = pas de trade)
+  - Volatility squeeze (vol5 < 50% vol20)
+  - H4 est bearish (EMA5 < EMA20 ET RSI < 40)
+  - Cooldown pas termine (4 barres minimum)
+  - Trade deja ouvert
+
+  Sortie:
+  - Stop loss: 1.5x ATR
+  - Take profit: 3.0x ATR (4.0x sur signals forts)
+  - Trailing stop: s'active apres 1.0x ATR de profit
+  - Time stop: ferme apres 30 barres max
+
+====================================================================
