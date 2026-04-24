@@ -41,12 +41,30 @@ data/processed/*.parquet
 data/processed/*.csv
 data/processed/*.hdf5
 data/.cache/
+data/mt5/*.parquet
+data/monitoring/*.json
+
+# Forex data (heavy - 115MB+)
+forex/data/raw/*.parquet
+forex/data/raw/*.csv
+forex/data/processed/*.parquet
+forex/data/gaps/*.parquet
 
 # Model files
 data/models/*.pth
 data/models/*.h5
 data/models/*.pkl
 data/models/*.joblib
+forex/models/*.onnx
+forex/models/*.pkl
+forex/models/*.joblib
+
+# Dated analysis outputs (regenerable)
+gap_ranking_*_2026*.csv
+gap_ranking_*_2027*.csv
+
+# License DB (sensitive)
+MT5_EA/license/licenses_db.json
 
 # Logs
 logs/
@@ -71,6 +89,9 @@ config/secrets.yaml
 *.swo
 *~
 .DS_Store
+
+# Claude Code local settings
+.claude/
 
 # Testing
 .pytest_cache/
