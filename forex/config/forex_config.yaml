@@ -1,0 +1,127 @@
+# ============================================================
+# FOREX TRADING SYSTEM - CONFIGURATION
+# ============================================================
+
+mt5:
+  # Utilise les credentials de .env à la racine (même compte Deriv)
+  server: "Deriv-Demo"
+  timeout: 60000
+
+# Paires forex à scanner (noms MT5 Deriv standards - on adapte après list_symbols.py)
+symbols:
+  majors:
+    - "EURUSD"
+    - "GBPUSD"
+    - "USDJPY"
+    - "USDCHF"
+    - "AUDUSD"
+    - "USDCAD"
+    - "NZDUSD"
+  crosses:
+    - "EURJPY"
+    - "GBPJPY"
+    - "EURGBP"
+  metals:
+    - "XAUUSD"
+
+extraction:
+  primary_timeframe: "M15"
+  context_timeframes: ["H1", "H4"]
+  years_of_history: 3
+  chunk_days: 30  # taille d'un batch d'extraction
+
+## Triple-barrier labeling
+labeling:
+  take_profit_atr: 1.5    # TP = 1.5 * ATR (breakeven win rate ≈ 40%)
+  stop_loss_atr: 1.0
+  max_holding_bars: 48    # overridden per-timeframe in run_pipeline
+  atr_period: 14
+
+# Features
+features:
+  rsi_periods: [7, 14, 21]
+  ema_periods: [9, 21, 50, 200]
+  atr_periods: [14, 50]
+  bb_period: 20
+  bb_std: 2.0
+  return_lags: [1, 3, 5, 10, 20]
+  volatility_windows: [5, 20, 50]
+
+# Sessions (UTC)
+sessions:
+  asia_start: 0       # 00:00 UTC
+  asia_end: 8
+  london_start: 7
+  london_end: 16
+  ny_start: 12
+  ny_end: 21
+
+# Modèle
+model:
+  type: "ensemble"     # xgboost, lightgbm, ensemble
+  xgb_params:
+    n_estimators: 500
+    max_depth: 5
+    learning_rate: 0.03
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_weight: 3
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+  lgb_params:
+    n_estimators: 500
+    max_depth: 5
+    learning_rate: 0.03
+    num_leaves: 31
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+
+# Meta-labeling (secondary classifier filtering primary signals)
+meta:
+  enabled: false        # disabled: needs richer features (regime, microstructure) to add edge
+  threshold: 0.60       # keep signal if meta proba >= threshold (high = strict)
+  min_train: 300        # min signals required to train meta
+  min_auc: 0.52         # disable side entirely if meta AUC below this
+  params:
+    n_estimators: 300
+    max_depth: 4
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_weight: 5
+    reg_alpha: 0.2
+    reg_lambda: 1.5
+
+# Validation
+validation:
+  method: "walk_forward"
+  n_splits: 5
+  embargo_bars: 32       # gap entre train et test pour éviter leak via labels
+  min_train_size: 3000
+
+# Backtest
+backtest:
+  initial_capital: 10000
+  risk_per_trade: 0.01            # 1% du capital par trade
+  max_concurrent_positions: 1
+  spread_pips: 1.5                # spread moyen Deriv MT5 forex majors
+  slippage_pips: 0.3
+  commission_per_lot: 0.0         # Deriv standard forex = pas de commission
+  # Signal threshold
+  long_threshold: 0.50
+  short_threshold: 0.50
+  # Primary edge quantile: 0.95 = top 5% most confident signals
+  edge_quantile: 0.95
+  # Restrict trading to London/NY sessions (best liquidity, smallest effective spread)
+  sessions_filter: ["london", "ny"]  # use [] or null to disable
+  # Minimum walk-forward AUC required to enable a side (below = random noise)
+  min_side_auc: 0.53
+
+# Reporting
+report:
+  output_dir: "forex/reports"
+  plot_equity: true
+  plot_drawdown: true
+  plot_monthly_returns: true

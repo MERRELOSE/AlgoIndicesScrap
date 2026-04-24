@@ -1,0 +1,793 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © kennedymerrelose
+// v2 - Enhanced edition
+//
+// CHANGELOG v2 (vs v1) :
+//  [FIX]  ta.crossover/crossunder extraits hors des if (warnings TradingView + signaux ratés)
+//  [FIX]  Bug reset asian_range_valid AVANT la stratégie -> le breakout ne déclenchait jamais
+//  [NEW]  Filtre de tendance HTF (H1/H4/D) via request.security
+//  [NEW]  Confirmation par retest pour le breakout asiatique
+//  [NEW]  Filtre taille range asiatique (ratio range/ATR)
+//  [NEW]  Filtre "KZ fraîche" : ne trader que les N premières minutes d'une Kill Zone
+//  [NEW]  SL multipliers séparés par stratégie (VWAP serré, KZ standard)
+//  [NEW]  Mode "priorité signaux" : un seul signal par bougie (KZ > BO > VWAP)
+//  [NEW]  Anti-doublon : 1 entrée long + 1 entrée short max par range asiatique
+
+//@version=6
+indicator("📊 Forex Sessions PRO v2 - Enhanced", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// ============================================================================
+// PARAMÈTRES UTILISATEUR
+// ============================================================================
+
+// === TIMEZONE ===
+tz_offset = input.int(1, 'Fuseau Horaire UTC (+/-)', minval=-12, maxval=14, group='🌍 Timezone', tooltip='Décalage par rapport à UTC (ex: Paris = +1)')
+use_exchange_tz = input(false, 'Utiliser le fuseau de l\'exchange', group='🌍 Timezone')
+
+// === SESSIONS ===
+show_nya = input(true, '', inline='nya', group='📍 Sessions')
+nya_name = input.string('New York', '', inline='nya', group='📍 Sessions')
+nya_time = input.session('1300-2200', '', inline='nya', group='📍 Sessions', tooltip='Heures au format 24h')
+nya_color = input.color(#ff5d00, '', inline='nya', group='📍 Sessions')
+
+show_ldn = input(true, '', inline='ldn', group='📍 Sessions')
+ldn_name = input.string('Londres', '', inline='ldn', group='📍 Sessions')
+ldn_time = input.session('0700-1600', '', inline='ldn', group='📍 Sessions')
+ldn_color = input.color(#2157f3, '', inline='ldn', group='📍 Sessions')
+
+show_tyo = input(true, '', inline='tyo', group='📍 Sessions')
+tyo_name = input.string('Tokyo', '', inline='tyo', group='📍 Sessions')
+tyo_time = input.session('0000-0900', '', inline='tyo', group='📍 Sessions')
+tyo_color = input.color(#e91e63, '', inline='tyo', group='📍 Sessions')
+
+// === KILL ZONES ===
+show_kz = input(true, 'Afficher Kill Zones', group='🎯 Kill Zones')
+london_kz_time = input.session('0800-1100', 'London Kill Zone', group='🎯 Kill Zones')
+ny_kz_time = input.session('1300-1600', 'New York Kill Zone', group='🎯 Kill Zones')
+london_kz_color = input.color(color.red, 'Couleur London KZ', group='🎯 Kill Zones')
+ny_kz_color = input.color(color.blue, 'Couleur NY KZ', group='🎯 Kill Zones')
+kz_fresh_only = input(true, '🆕 Trader uniquement les premières minutes de KZ', group='🎯 Kill Zones', tooltip='Les 30 premières min concentrent 70% du move exploitable')
+kz_fresh_minutes = input.int(30, 'Durée KZ "fraîche" (minutes)', minval=5, maxval=120, group='🎯 Kill Zones')
+
+// === FILTRES CONTEXTE (NOUVEAU) ===
+use_htf_trend = input(true, '🆕 Filtre trend multi-timeframe', group='🎯 Filtres Contexte', tooltip='Rejette les signaux contre-tendance sur un TF supérieur')
+htf_trend_tf = input.timeframe('240', 'Timeframe du filtre trend', group='🎯 Filtres Contexte')
+htf_ema_period = input.int(50, 'Période EMA HTF', minval=10, group='🎯 Filtres Contexte')
+
+// === AFFICHAGE SESSIONS ===
+show_session_boxes = input(true, 'Afficher les boxes de sessions', group='🎨 Affichage Sessions')
+show_session_labels = input(true, 'Afficher les labels de sessions', group='🎨 Affichage Sessions')
+show_session_hl = input(true, 'Afficher High/Low des sessions', group='🎨 Affichage Sessions')
+session_bg_transp = input.int(90, 'Transparence des boxes', minval=0, maxval=100, group='🎨 Affichage Sessions')
+
+// === STRATÉGIES ===
+enable_asian_breakout = input(true, '🔥 Asian Breakout Strategy', group='📈 Stratégies')
+enable_vwap_bounce = input(true, '💎 VWAP Bounce Strategy', group='📈 Stratégies')
+enable_killzone_entries = input(true, '🎯 Kill Zone Entries Strategy', group='📈 Stratégies')
+priority_mode = input(true, '🆕 Mode priorité (1 signal max / bougie : KZ > BO > VWAP)', group='📈 Stratégies')
+
+// === ASIAN BREAKOUT - OPTIONS (NOUVEAU) ===
+require_retest = input(true, '🆕 Exiger un retest du niveau cassé', group='🔥 Asian Breakout Options', tooltip='Attend que le prix revienne toucher le niveau cassé avant d\'entrer (filtre les faux breakouts)')
+max_retest_bars = input.int(8, 'Max bougies pour valider le retest', minval=2, maxval=30, group='🔥 Asian Breakout Options')
+retest_tolerance_atr = input.float(0.3, 'Tolérance retest (× ATR)', minval=0.1, step=0.1, group='🔥 Asian Breakout Options')
+range_min_atr_ratio = input.float(0.8, '🆕 Taille min range (× ATR)', minval=0.1, step=0.1, group='🔥 Asian Breakout Options', tooltip='Rejette les ranges trop serrés (chop)')
+range_max_atr_ratio = input.float(3.0, 'Taille max range (× ATR)', maxval=10, step=0.1, group='🔥 Asian Breakout Options', tooltip='Rejette les ranges trop larges (déjà épuisés)')
+
+// === INDICATEURS ===
+show_vwap = input(true, 'Afficher VWAP Daily', group='📊 Indicateurs')
+show_ema = input(true, 'Afficher EMA9', group='📊 Indicateurs')
+show_htf_ema = input(true, '🆕 Afficher EMA HTF', group='📊 Indicateurs')
+ema_period = input.int(9, 'Période EMA', minval=1, group='📊 Indicateurs')
+
+// === RISK MANAGEMENT ===
+atr_period = input.int(14, 'Période ATR', minval=1, group='⚠️ Risk Management')
+atr_sl_mult_vwap = input.float(0.7, '🆕 Mult ATR SL - VWAP Bounce', minval=0.3, step=0.1, group='⚠️ Risk Management', tooltip='VWAP bounce = SL serré')
+atr_sl_mult_kz = input.float(1.5, '🆕 Mult ATR SL - Kill Zone', minval=0.3, step=0.1, group='⚠️ Risk Management')
+default_rr = input.float(2.0, 'Risk:Reward par défaut', minval=0.5, step=0.5, group='⚠️ Risk Management')
+
+// === FILTRES DE QUALITÉ ===
+min_signal_quality = input.int(60, 'Score minimum pour signaux (%)', minval=50, maxval=100, group='✅ Filtres Qualité')
+volume_filter = input(true, 'Filtre Volume (tick volume - peu fiable sur Forex)', group='✅ Filtres Qualité')
+trend_filter = input(true, 'Filtre Tendance EMA9 locale', group='✅ Filtres Qualité')
+
+// === ALERTES ===
+enable_breakout_alerts = input(true, '🔔 Alertes Breakout', group='🔔 Alertes')
+enable_vwap_alerts = input(true, '🔔 Alertes VWAP', group='🔔 Alertes')
+enable_kz_alerts = input(true, '🔔 Alertes Kill Zones', group='🔔 Alertes')
+
+// === AFFICHAGE SIGNAUX ===
+forward_bars = input.int(25, 'Projection zones SL/TP (bougies)', minval=5, maxval=200, group='🎨 Affichage Signaux')
+show_score_inline = input(true, 'Afficher score sur label', group='🎨 Affichage Signaux')
+show_zone_labels = input(false, 'Afficher prix Entry/SL/TP au bord droit', group='🎨 Affichage Signaux')
+signal_label_size = input.string('small', 'Taille labels signaux', options=['tiny', 'small', 'normal'], group='🎨 Affichage Signaux')
+
+// === DASHBOARD ===
+show_dashboard = input(true, 'Afficher Tableau Info', group='📋 Dashboard')
+show_legend = input(true, 'Afficher Légende', group='📋 Dashboard')
+
+// ============================================================================
+// VARIABLES GLOBALES
+// ============================================================================
+
+var string tz = use_exchange_tz ? syminfo.timezone : str.format('UTC{0}{1}', tz_offset >= 0 ? '+' : '-', math.abs(tz_offset))
+
+is_nya = not na(time(timeframe.period, nya_time, tz))
+is_ldn = not na(time(timeframe.period, ldn_time, tz))
+is_tyo = not na(time(timeframe.period, tyo_time, tz))
+is_london_kz = not na(time(timeframe.period, london_kz_time, tz))
+is_ny_kz = not na(time(timeframe.period, ny_kz_time, tz))
+
+var box box_nya = na
+var box box_ldn = na
+var box box_tyo = na
+var box box_london_kz = na
+var box box_ny_kz = na
+
+var line line_tyo_high = na
+var line line_tyo_low = na
+var line line_ldn_high = na
+var line line_ldn_low = na
+var line line_nya_high = na
+var line line_nya_low = na
+
+// Asian Range state
+var float asian_high = na
+var float asian_low = na
+var int asian_start_bar = na
+var bool asian_range_valid = false
+var bool asian_broken_up = false        // v2: niveau haut cassé
+var bool asian_broken_down = false      // v2: niveau bas cassé
+var int broken_bar_up = na              // v2: bar du break haut
+var int broken_bar_down = na            // v2: bar du break bas
+var bool long_taken = false             // v2: 1 long max par range
+var bool short_taken = false            // v2: 1 short max par range
+
+// KZ freshness state
+var int london_kz_start_time = na
+var int ny_kz_start_time = na
+
+// ============================================================================
+// INDICATEURS
+// ============================================================================
+
+atr = ta.atr(atr_period)
+atr_sl_long_vwap = close - (atr * atr_sl_mult_vwap)
+atr_sl_short_vwap = close + (atr * atr_sl_mult_vwap)
+atr_sl_long_kz = close - (atr * atr_sl_mult_kz)
+atr_sl_short_kz = close + (atr * atr_sl_mult_kz)
+
+vwap = ta.vwap(close)
+ema9 = ta.ema(close, ema_period)
+
+// --- Filtre trend HTF (NOUVEAU) ---
+htf_ema = request.security(syminfo.tickerid, htf_trend_tf, ta.ema(close, htf_ema_period), lookahead=barmerge.lookahead_off)
+htf_trend_up = close > htf_ema
+htf_trend_down = close < htf_ema
+long_trend_ok = not use_htf_trend or htf_trend_up
+short_trend_ok = not use_htf_trend or htf_trend_down
+
+vol_ma = ta.sma(volume, 20)
+high_volume = volume > vol_ma
+
+// ============================================================================
+// CROSSOVERS GLOBAUX (FIX v2 : calculés à chaque bougie pour fiabilité)
+// ============================================================================
+
+cross_asian_high = ta.crossover(close, asian_high)
+cross_asian_low = ta.crossunder(close, asian_low)
+cross_vwap_up = ta.crossover(close, vwap)
+cross_vwap_down = ta.crossunder(close, vwap)
+cross_ema9_up = ta.crossover(close, ema9)
+cross_ema9_down = ta.crossunder(close, ema9)
+
+// ============================================================================
+// FONCTIONS
+// ============================================================================
+
+f_draw_session_range(bool session_active, box session_box, color box_color, string session_label) =>
+    var box bx = session_box
+    var label lbl = na
+    var int start_bar = na
+    var float session_high = na
+    var float session_low = na
+
+    if session_active and session_active != session_active[1]
+        start_bar := bar_index
+        session_high := high
+        session_low := low
+
+        if show_session_boxes
+            bx := box.new(bar_index, high, bar_index, low,
+              bgcolor = color.new(box_color, session_bg_transp),
+              border_color = color.new(box_color, 0),
+              border_style = line.style_dotted)
+
+        if show_session_labels
+            lbl := label.new(bar_index, high, session_label,
+              color = color.new(box_color, 30),
+              textcolor = color.white,
+              style = label.style_label_down,
+              size = size.small)
+
+    if session_active
+        session_high := math.max(session_high, high)
+        session_low := math.min(session_low, low)
+
+        if not na(bx)
+            box.set_top(bx, session_high)
+            box.set_bottom(bx, session_low)
+            box.set_right(bx, bar_index)
+
+        if not na(lbl)
+            label.set_xy(lbl, math.round((start_bar + bar_index) / 2), session_high)
+
+    [bx, session_high, session_low]
+
+f_draw_hl(bool session_active, line h_line, line l_line, color line_color) =>
+    var line ln_high = h_line
+    var line ln_low = l_line
+    var float sess_high = na
+    var float sess_low = na
+
+    if session_active and session_active != session_active[1]
+        sess_high := high
+        sess_low := low
+
+        ln_high := line.new(bar_index, high, bar_index, high,
+          color = line_color, width = 2, style = line.style_dashed)
+        ln_low := line.new(bar_index, low, bar_index, low,
+          color = line_color, width = 2, style = line.style_dashed)
+
+    if session_active
+        sess_high := math.max(sess_high, high)
+        sess_low := math.min(sess_low, low)
+
+        if not na(ln_high)
+            line.set_y1(ln_high, sess_high)
+            line.set_y2(ln_high, sess_high)
+            line.set_x2(ln_high, bar_index)
+
+        if not na(ln_low)
+            line.set_y1(ln_low, sess_low)
+            line.set_y2(ln_low, sess_low)
+            line.set_x2(ln_low, bar_index)
+
+    [ln_high, ln_low, sess_high, sess_low]
+
+f_draw_killzone(bool kz_active, box kz_box, color kz_color, string kz_label) =>
+    var box bx = kz_box
+
+    if kz_active and kz_active != kz_active[1]
+        bx := box.new(bar_index, high, bar_index, low,
+          bgcolor = color.new(kz_color, 92),
+          border_color = kz_color,
+          border_width = 2)
+
+        label.new(bar_index, high, kz_label,
+          color = kz_color,
+          textcolor = color.white,
+          style = label.style_label_down,
+          size = size.tiny)
+
+    if kz_active and not na(bx)
+        box.set_top(bx, math.max(box.get_top(bx), high))
+        box.set_bottom(bx, math.min(box.get_bottom(bx), low))
+        box.set_right(bx, bar_index)
+
+    bx
+
+f_calculate_signal_quality(bool is_with_trend, bool is_high_vol, float dist_to_vwap, bool in_kz, bool with_htf) =>
+    float score = 45.0
+
+    if is_with_trend
+        score += 15
+    if with_htf
+        score += 15                       // v2: bonus HTF alignement
+    if is_high_vol
+        score += 10
+
+    float vwap_dist_pct = math.abs(dist_to_vwap / close) * 100
+    if vwap_dist_pct < 0.1
+        score += 10
+    else if vwap_dist_pct < 0.3
+        score += 5
+
+    if in_kz
+        score += 5
+
+    math.min(score, 100)
+
+f_draw_position_zone(float entry, float sl, float tp, bool is_long, string short_label, float score) =>
+    int right_bar = bar_index + forward_bars
+    color tp_col = #26a69a
+    color sl_col = #ef5350
+    color dir_col = is_long ? tp_col : sl_col
+
+    box.new(bar_index, math.max(entry, tp), right_bar, math.min(entry, tp),
+      bgcolor = color.new(tp_col, 82),
+      border_color = color.new(tp_col, 40),
+      border_width = 1,
+      border_style = line.style_solid)
+
+    box.new(bar_index, math.max(entry, sl), right_bar, math.min(entry, sl),
+      bgcolor = color.new(sl_col, 82),
+      border_color = color.new(sl_col, 40),
+      border_width = 1,
+      border_style = line.style_solid)
+
+    line.new(bar_index, entry, right_bar, entry,
+      color = color.new(color.white, 20),
+      width = 1,
+      style = line.style_dashed)
+
+    float rr = is_long ? (tp - entry) / (entry - sl) : (entry - tp) / (sl - entry)
+
+    if show_zone_labels
+        label.new(right_bar, tp,
+          text = 'TP  ' + str.tostring(tp, format.mintick) + '   R:R 1:' + str.tostring(rr, '#.##'),
+          style = label.style_label_right,
+          color = color.new(tp_col, 15),
+          textcolor = color.white,
+          size = size.tiny)
+
+        label.new(right_bar, entry,
+          text = 'Entry  ' + str.tostring(entry, format.mintick) + '   ✅ ' + str.tostring(score, '#0') + '%',
+          style = label.style_label_right,
+          color = color.new(color.gray, 15),
+          textcolor = color.white,
+          size = size.tiny)
+
+        label.new(right_bar, sl,
+          text = 'SL  ' + str.tostring(sl, format.mintick),
+          style = label.style_label_right,
+          color = color.new(sl_col, 15),
+          textcolor = color.white,
+          size = size.tiny)
+
+    string lbl_text = short_label + (show_score_inline ? '  ' + str.tostring(score, '#0') + '%' : '')
+    string tip = 'Entry: ' + str.tostring(entry, format.mintick) +
+                 '\nSL: ' + str.tostring(sl, format.mintick) +
+                 '\nTP: ' + str.tostring(tp, format.mintick) +
+                 '\nR:R = 1:' + str.tostring(rr, '#.##') +
+                 '\nScore: ' + str.tostring(score, '#') + '%'
+    string size_choice = signal_label_size == 'normal' ? size.normal : signal_label_size == 'small' ? size.small : size.tiny
+
+    label.new(bar_index, is_long ? low : high,
+      text = lbl_text,
+      color = dir_col,
+      textcolor = color.white,
+      style = is_long ? label.style_label_up : label.style_label_down,
+      size = size_choice,
+      tooltip = tip)
+
+// ============================================================================
+// DESSIN DES SESSIONS
+// ============================================================================
+
+if show_nya
+    [bx, h, l] = f_draw_session_range(is_nya, box_nya, nya_color, nya_name)
+    box_nya := bx
+
+if show_ldn
+    [bx, h, l] = f_draw_session_range(is_ldn, box_ldn, ldn_color, ldn_name)
+    box_ldn := bx
+
+if show_tyo
+    [bx, h, l] = f_draw_session_range(is_tyo, box_tyo, tyo_color, tyo_name)
+    box_tyo := bx
+
+if show_session_hl
+    if show_tyo
+        [h_line, l_line, h_val, l_val] = f_draw_hl(is_tyo, line_tyo_high, line_tyo_low, tyo_color)
+        line_tyo_high := h_line
+        line_tyo_low := l_line
+    if show_ldn
+        [h_line, l_line, h_val, l_val] = f_draw_hl(is_ldn, line_ldn_high, line_ldn_low, ldn_color)
+        line_ldn_high := h_line
+        line_ldn_low := l_line
+    if show_nya
+        [h_line, l_line, h_val, l_val] = f_draw_hl(is_nya, line_nya_high, line_nya_low, nya_color)
+        line_nya_high := h_line
+        line_nya_low := l_line
+
+if show_kz
+    box_london_kz := f_draw_killzone(is_london_kz, box_london_kz, london_kz_color, '🎯 LONDON KZ')
+    box_ny_kz := f_draw_killzone(is_ny_kz, box_ny_kz, ny_kz_color, '🎯 NY KZ')
+
+// ============================================================================
+// TRACKING KZ FRESHNESS (NOUVEAU v2)
+// ============================================================================
+
+if is_london_kz and not is_london_kz[1]
+    london_kz_start_time := time
+if is_ny_kz and not is_ny_kz[1]
+    ny_kz_start_time := time
+
+london_kz_fresh = is_london_kz and not na(london_kz_start_time) and (time - london_kz_start_time) <= kz_fresh_minutes * 60 * 1000
+ny_kz_fresh = is_ny_kz and not na(ny_kz_start_time) and (time - ny_kz_start_time) <= kz_fresh_minutes * 60 * 1000
+in_fresh_kz = london_kz_fresh or ny_kz_fresh
+kz_filter_ok = not kz_fresh_only or in_fresh_kz
+
+// ============================================================================
+// GESTION ASIAN RANGE (FIX + NOUVEAU v2)
+// ============================================================================
+
+// Capture du range pendant Tokyo + reset des flags break
+if is_tyo
+    if is_tyo != is_tyo[1]
+        asian_high := high
+        asian_low := low
+        asian_start_bar := bar_index
+        asian_range_valid := false
+        asian_broken_up := false
+        asian_broken_down := false
+        broken_bar_up := na
+        broken_bar_down := na
+        long_taken := false
+        short_taken := false
+    else
+        asian_high := math.max(asian_high, high)
+        asian_low := math.min(asian_low, low)
+
+// Validation à la fin de Tokyo + filtre taille range
+if is_tyo[1] and not is_tyo
+    float range_size = asian_high - asian_low
+    float range_to_atr = atr > 0 ? range_size / atr : 0
+    asian_range_valid := range_to_atr >= range_min_atr_ratio and range_to_atr <= range_max_atr_ratio
+
+// Tracking des breaks (pour retest)
+if asian_range_valid and is_ldn
+    if cross_asian_high and not asian_broken_up
+        asian_broken_up := true
+        broken_bar_up := bar_index
+    if cross_asian_low and not asian_broken_down
+        asian_broken_down := true
+        broken_bar_down := bar_index
+
+// ============================================================================
+// STRATÉGIE 1 : ASIAN BREAKOUT (refactoré v2)
+// ============================================================================
+
+bool breakout_long = false
+bool breakout_short = false
+float breakout_entry = na
+float breakout_sl = na
+float breakout_tp = na
+float breakout_rr = na
+float breakout_quality = na
+
+if enable_asian_breakout and asian_range_valid and is_ldn
+    float asian_range = asian_high - asian_low
+
+    // --- LONG ---
+    bool long_condition = false
+    if not long_taken and long_trend_ok
+        if require_retest
+            // Retest : prix revient toucher asian_high puis reclôture au-dessus
+            if asian_broken_up and (bar_index - broken_bar_up) <= max_retest_bars
+                if low <= asian_high + (atr * retest_tolerance_atr) and close > asian_high and close > open
+                    long_condition := true
+        else
+            // Mode pur breakout (v1)
+            if cross_asian_high
+                long_condition := true
+
+    if long_condition
+        breakout_long := true
+        long_taken := true
+        breakout_entry := close
+        breakout_sl := asian_low
+        breakout_tp := asian_high + (asian_range * default_rr)
+        breakout_rr := (breakout_tp - breakout_entry) / (breakout_entry - breakout_sl)
+        bool with_trend = close > ema9
+        breakout_quality := f_calculate_signal_quality(with_trend, high_volume, close - vwap, is_london_kz, htf_trend_up)
+
+    // --- SHORT ---
+    bool short_condition = false
+    if not short_taken and short_trend_ok
+        if require_retest
+            if asian_broken_down and (bar_index - broken_bar_down) <= max_retest_bars
+                if high >= asian_low - (atr * retest_tolerance_atr) and close < asian_low and close < open
+                    short_condition := true
+        else
+            if cross_asian_low
+                short_condition := true
+
+    if short_condition
+        breakout_short := true
+        short_taken := true
+        breakout_entry := close
+        breakout_sl := asian_high
+        breakout_tp := asian_low - (asian_range * default_rr)
+        breakout_rr := (breakout_entry - breakout_tp) / (breakout_sl - breakout_entry)
+        bool with_trend = close < ema9
+        breakout_quality := f_calculate_signal_quality(with_trend, high_volume, vwap - close, is_london_kz, htf_trend_down)
+
+// ============================================================================
+// STRATÉGIE 2 : VWAP BOUNCE
+// ============================================================================
+
+bool vwap_bounce_long = false
+bool vwap_bounce_short = false
+float vwap_entry = na
+float vwap_sl = na
+float vwap_tp = na
+float vwap_rr = na
+float vwap_quality = na
+
+if enable_vwap_bounce
+    float dist_vwap = math.abs(close - vwap)
+    bool near_vwap = dist_vwap < (atr * 0.3)
+
+    // LONG
+    if near_vwap and cross_vwap_up and close > vwap and long_trend_ok
+        bool with_trend_ema = close > ema9
+        bool apply_filter = not trend_filter or with_trend_ema
+        bool vol_ok = not volume_filter or high_volume
+
+        if apply_filter and vol_ok
+            vwap_bounce_long := true
+            vwap_entry := close
+            vwap_sl := atr_sl_long_vwap
+            vwap_tp := close + ((close - vwap_sl) * default_rr)
+            vwap_rr := (vwap_tp - vwap_entry) / (vwap_entry - vwap_sl)
+            bool in_kz = is_london_kz or is_ny_kz
+            vwap_quality := f_calculate_signal_quality(with_trend_ema, high_volume, dist_vwap, in_kz, htf_trend_up)
+
+    // SHORT
+    if near_vwap and cross_vwap_down and close < vwap and short_trend_ok
+        bool with_trend_ema = close < ema9
+        bool apply_filter = not trend_filter or with_trend_ema
+        bool vol_ok = not volume_filter or high_volume
+
+        if apply_filter and vol_ok
+            vwap_bounce_short := true
+            vwap_entry := close
+            vwap_sl := atr_sl_short_vwap
+            vwap_tp := close - ((vwap_sl - close) * default_rr)
+            vwap_rr := (vwap_entry - vwap_tp) / (vwap_sl - vwap_entry)
+            bool in_kz = is_london_kz or is_ny_kz
+            vwap_quality := f_calculate_signal_quality(with_trend_ema, high_volume, dist_vwap, in_kz, htf_trend_down)
+
+// ============================================================================
+// STRATÉGIE 3 : KILL ZONE ENTRIES (avec filtre fresh + HTF v2)
+// ============================================================================
+
+bool kz_long = false
+bool kz_short = false
+float kz_entry = na
+float kz_sl = na
+float kz_tp = na
+float kz_rr = na
+float kz_quality = na
+string kz_name = na
+
+if enable_killzone_entries
+    bool in_any_kz = is_london_kz or is_ny_kz
+
+    if in_any_kz and kz_filter_ok
+        // LONG
+        if close > vwap and cross_ema9_up and long_trend_ok
+            bool vol_ok = not volume_filter or high_volume
+            if vol_ok
+                kz_long := true
+                kz_entry := close
+                kz_sl := atr_sl_long_kz
+                kz_tp := close + ((close - kz_sl) * default_rr)
+                kz_rr := (kz_tp - kz_entry) / (kz_entry - kz_sl)
+                kz_name := is_london_kz ? 'LONDON KZ' : 'NY KZ'
+                kz_quality := f_calculate_signal_quality(true, high_volume, close - vwap, true, htf_trend_up)
+
+        // SHORT
+        if close < vwap and cross_ema9_down and short_trend_ok
+            bool vol_ok = not volume_filter or high_volume
+            if vol_ok
+                kz_short := true
+                kz_entry := close
+                kz_sl := atr_sl_short_kz
+                kz_tp := close - ((kz_sl - close) * default_rr)
+                kz_rr := (kz_entry - kz_tp) / (kz_sl - kz_entry)
+                kz_name := is_london_kz ? 'LONDON KZ' : 'NY KZ'
+                kz_quality := f_calculate_signal_quality(true, high_volume, vwap - close, true, htf_trend_down)
+
+// ============================================================================
+// MODE PRIORITÉ : 1 SEUL SIGNAL PAR BOUGIE (NOUVEAU v2)
+// KZ > Breakout > VWAP
+// ============================================================================
+
+if priority_mode
+    if kz_long or kz_short
+        breakout_long := false
+        breakout_short := false
+        vwap_bounce_long := false
+        vwap_bounce_short := false
+    else if breakout_long or breakout_short
+        vwap_bounce_long := false
+        vwap_bounce_short := false
+
+// ============================================================================
+// AFFICHAGE DES SIGNAUX
+// ============================================================================
+
+if breakout_long and breakout_quality >= min_signal_quality
+    f_draw_position_zone(breakout_entry, breakout_sl, breakout_tp, true, '🔼 BO', breakout_quality)
+
+if breakout_short and breakout_quality >= min_signal_quality
+    f_draw_position_zone(breakout_entry, breakout_sl, breakout_tp, false, '🔽 BO', breakout_quality)
+
+if vwap_bounce_long and vwap_quality >= min_signal_quality
+    f_draw_position_zone(vwap_entry, vwap_sl, vwap_tp, true, '🔼 VWAP', vwap_quality)
+
+if vwap_bounce_short and vwap_quality >= min_signal_quality
+    f_draw_position_zone(vwap_entry, vwap_sl, vwap_tp, false, '🔽 VWAP', vwap_quality)
+
+if kz_long and kz_quality >= min_signal_quality
+    f_draw_position_zone(kz_entry, kz_sl, kz_tp, true, '🔼 KZ', kz_quality)
+
+if kz_short and kz_quality >= min_signal_quality
+    f_draw_position_zone(kz_entry, kz_sl, kz_tp, false, '🔽 KZ', kz_quality)
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+
+plot(show_vwap ? vwap : na, 'VWAP Daily', color.yellow, 2)
+plot(show_ema ? ema9 : na, 'EMA9', color.aqua, 1)
+plot(show_htf_ema ? htf_ema : na, 'EMA HTF', color.new(color.purple, 0), 2)
+
+// ============================================================================
+// ALERTES
+// ============================================================================
+
+if enable_breakout_alerts and breakout_long and breakout_quality >= min_signal_quality
+    alert('🚨 LONG - Asian Breakout\nEntry: ' + str.tostring(breakout_entry, format.mintick) +
+          '\nSL: ' + str.tostring(breakout_sl, format.mintick) +
+          '\nTP: ' + str.tostring(breakout_tp, format.mintick) +
+          '\nR:R 1:' + str.tostring(breakout_rr, '#.##') +
+          '\nScore: ' + str.tostring(breakout_quality, '#') + '%', alert.freq_once_per_bar)
+
+if enable_breakout_alerts and breakout_short and breakout_quality >= min_signal_quality
+    alert('🚨 SHORT - Asian Breakout\nEntry: ' + str.tostring(breakout_entry, format.mintick) +
+          '\nSL: ' + str.tostring(breakout_sl, format.mintick) +
+          '\nTP: ' + str.tostring(breakout_tp, format.mintick) +
+          '\nR:R 1:' + str.tostring(breakout_rr, '#.##') +
+          '\nScore: ' + str.tostring(breakout_quality, '#') + '%', alert.freq_once_per_bar)
+
+if enable_vwap_alerts and vwap_bounce_long and vwap_quality >= min_signal_quality
+    alert('🚨 LONG - VWAP Bounce\nEntry: ' + str.tostring(vwap_entry, format.mintick) +
+          '\nSL: ' + str.tostring(vwap_sl, format.mintick) +
+          '\nTP: ' + str.tostring(vwap_tp, format.mintick) +
+          '\nR:R 1:' + str.tostring(vwap_rr, '#.##') +
+          '\nScore: ' + str.tostring(vwap_quality, '#') + '%', alert.freq_once_per_bar)
+
+if enable_vwap_alerts and vwap_bounce_short and vwap_quality >= min_signal_quality
+    alert('🚨 SHORT - VWAP Bounce\nEntry: ' + str.tostring(vwap_entry, format.mintick) +
+          '\nSL: ' + str.tostring(vwap_sl, format.mintick) +
+          '\nTP: ' + str.tostring(vwap_tp, format.mintick) +
+          '\nR:R 1:' + str.tostring(vwap_rr, '#.##') +
+          '\nScore: ' + str.tostring(vwap_quality, '#') + '%', alert.freq_once_per_bar)
+
+if enable_kz_alerts and kz_long and kz_quality >= min_signal_quality
+    alert('🎯 LONG - ' + kz_name + '\nEntry: ' + str.tostring(kz_entry, format.mintick) +
+          '\nSL: ' + str.tostring(kz_sl, format.mintick) +
+          '\nTP: ' + str.tostring(kz_tp, format.mintick) +
+          '\nR:R 1:' + str.tostring(kz_rr, '#.##') +
+          '\nScore: ' + str.tostring(kz_quality, '#') + '%', alert.freq_once_per_bar)
+
+if enable_kz_alerts and kz_short and kz_quality >= min_signal_quality
+    alert('🎯 SHORT - ' + kz_name + '\nEntry: ' + str.tostring(kz_entry, format.mintick) +
+          '\nSL: ' + str.tostring(kz_sl, format.mintick) +
+          '\nTP: ' + str.tostring(kz_tp, format.mintick) +
+          '\nR:R 1:' + str.tostring(kz_rr, '#.##') +
+          '\nScore: ' + str.tostring(kz_quality, '#') + '%', alert.freq_once_per_bar)
+
+// ============================================================================
+// DASHBOARD (v2 : + info HTF trend et KZ freshness)
+// ============================================================================
+
+if show_dashboard and barstate.islast
+    var table dash = table.new(position.top_right, 2, 10,
+      bgcolor = color.new(#1a1a1a, 10),
+      border_color = color.gray,
+      border_width = 1)
+
+    table.cell(dash, 0, 0, '📊 FOREX SESSIONS v2',
+      text_color = color.white,
+      bgcolor = color.new(color.blue, 30),
+      text_size = size.normal)
+    table.merge_cells(dash, 0, 0, 1, 0)
+
+    table.cell(dash, 0, 1, 'ATR(' + str.tostring(atr_period) + ')', text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 1, str.tostring(atr, format.mintick), text_color = color.yellow, text_size = size.small)
+
+    table.cell(dash, 0, 2, 'VWAP', text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 2, str.tostring(vwap, format.mintick), text_color = color.yellow, text_size = size.small)
+
+    string vwap_pos = close > vwap ? '🟢 AU DESSUS' : '🔴 EN DESSOUS'
+    color vwap_col = close > vwap ? color.green : color.red
+    table.cell(dash, 0, 3, 'vs VWAP', text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 3, vwap_pos, text_color = vwap_col, text_size = size.small)
+
+    // v2: HTF Trend
+    string htf_status = htf_trend_up ? '🟢 HAUSSIER' : '🔴 BAISSIER'
+    color htf_col = htf_trend_up ? color.green : color.red
+    table.cell(dash, 0, 4, 'Trend ' + htf_trend_tf, text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 4, htf_status, text_color = htf_col, text_size = size.small)
+
+    string vol_status = high_volume ? '🟢 ÉLEVÉ' : '⚪ NORMAL'
+    table.cell(dash, 0, 5, 'Volume', text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 5, vol_status, text_color = high_volume ? color.green : color.gray, text_size = size.small)
+
+    string active_session = is_london_kz ? '🎯 LONDON KZ' :
+                           is_ny_kz ? '🎯 NY KZ' :
+                           is_ldn ? '🇬🇧 LONDRES' :
+                           is_nya ? '🇺🇸 NEW YORK' :
+                           is_tyo ? '🇯🇵 TOKYO' : '💤 AUCUNE'
+    color sess_col = (is_london_kz or is_ny_kz) ? color.new(color.green, 50) : color.new(color.gray, 70)
+    table.cell(dash, 0, 6, 'Session', text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 6, active_session, text_color = color.white, text_size = size.tiny, bgcolor = sess_col)
+
+    // v2: KZ freshness
+    string kz_freshness = in_fresh_kz ? '🟢 FRAÎCHE' : (is_london_kz or is_ny_kz ? '🟡 TARDIVE' : '⚫ HORS KZ')
+    color kz_col = in_fresh_kz ? color.green : (is_london_kz or is_ny_kz ? color.orange : color.gray)
+    table.cell(dash, 0, 7, 'KZ Fresh', text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 7, kz_freshness, text_color = kz_col, text_size = size.tiny)
+
+    // Asian Range
+    if not na(asian_high) and asian_range_valid
+        float asian_range_size = asian_high - asian_low
+        float r2atr = atr > 0 ? asian_range_size / atr : 0
+        table.cell(dash, 0, 8, 'Range Asie/ATR', text_color = color.white, text_size = size.small)
+        table.cell(dash, 1, 8, str.tostring(r2atr, '#.##'), text_color = tyo_color, text_size = size.small)
+    else
+        table.cell(dash, 0, 8, 'Range Asie/ATR', text_color = color.white, text_size = size.small)
+        table.cell(dash, 1, 8, na(asian_high) ? 'N/A' : 'HORS ZONE', text_color = color.gray, text_size = size.small)
+
+    // État breaks
+    string break_status = asian_broken_up ? '🔼 Haut cassé' : asian_broken_down ? '🔽 Bas cassé' : '⏸ Aucun'
+    table.cell(dash, 0, 9, 'Break Asie', text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 9, break_status, text_color = color.white, text_size = size.tiny)
+
+// ============================================================================
+// LÉGENDE
+// ============================================================================
+
+if show_legend and barstate.islast
+    var table legend = table.new(position.top_left, 2, 9,
+      bgcolor = color.new(#1a1a1a, 15),
+      border_color = color.gray,
+      border_width = 1)
+
+    table.cell(legend, 0, 0, '📖 LÉGENDE v2',
+      text_color = color.white,
+      bgcolor = color.new(color.blue, 30),
+      text_size = size.small)
+    table.merge_cells(legend, 0, 0, 1, 0)
+
+    table.cell(legend, 0, 1, '🇯🇵', text_color = tyo_color, text_size = size.small)
+    table.cell(legend, 1, 1, 'Tokyo', text_color = color.white, text_size = size.tiny)
+
+    table.cell(legend, 0, 2, '🇬🇧', text_color = ldn_color, text_size = size.small)
+    table.cell(legend, 1, 2, 'Londres', text_color = color.white, text_size = size.tiny)
+
+    table.cell(legend, 0, 3, '🇺🇸', text_color = nya_color, text_size = size.small)
+    table.cell(legend, 1, 3, 'New York', text_color = color.white, text_size = size.tiny)
+
+    table.cell(legend, 0, 4, '🎯', text_color = color.red, text_size = size.small)
+    table.cell(legend, 1, 4, 'Kill Zones', text_color = color.white, text_size = size.tiny)
+
+    table.cell(legend, 0, 5, '🔼 BO', text_color = #26a69a, text_size = size.tiny)
+    table.cell(legend, 1, 5, 'Breakout (retest)', text_color = color.white, text_size = size.tiny)
+
+    table.cell(legend, 0, 6, '💎 VWAP', text_color = color.yellow, text_size = size.tiny)
+    table.cell(legend, 1, 6, 'Rebond VWAP', text_color = color.white, text_size = size.tiny)
+
+    table.cell(legend, 0, 7, '🎯 KZ', text_color = color.aqua, text_size = size.tiny)
+    table.cell(legend, 1, 7, 'Kill Zone Entry', text_color = color.white, text_size = size.tiny)
+
+    table.cell(legend, 0, 8, '🟢/🔴', text_color = color.white, text_size = size.tiny)
+    table.cell(legend, 1, 8, 'Zone TP / SL', text_color = color.white, text_size = size.tiny)
+
+// ============================================================================
+// FIN DU CODE v2
+// ============================================================================
